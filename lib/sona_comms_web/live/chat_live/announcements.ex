@@ -70,7 +70,7 @@ defmodule SonaCommsWeb.ChatLive.Announcements do
 
   defp open_modal(socket, :announce, conversation, _params) do
     socket
-    |> put_flash(:error, "Only managers and admins can post announcements here.")
+    |> put_flash(:error, "You can't post announcements in this chat.")
     |> push_patch(to: ~p"/c/#{conversation.id}")
   end
 
@@ -87,7 +87,7 @@ defmodule SonaCommsWeb.ChatLive.Announcements do
   end
 
   defp receipts_error(:unauthorized),
-    do: "Only the sender and managers can see who has read an announcement."
+    do: "Only the sender and whoever can announce here can see who has read it."
 
   defp receipts_error(:not_found), do: "That announcement isn't available."
 

@@ -94,12 +94,12 @@ defmodule SonaCommsWeb.ChatLive.AnnouncementsTest do
     assert {:error, {:live_redirect, %{to: ^org_path, flash: %{"error" => error}}}} =
              live_as(bob, ~p"/c/#{c.org.id}/announcements/#{message.id}")
 
-    assert error =~ "Only the sender and managers"
+    assert error =~ "Only the sender and whoever can announce"
 
     assert {:error, {:live_redirect, %{to: ^org_path, flash: %{"error" => error}}}} =
              live_as(bob, ~p"/c/#{c.org.id}/announce")
 
-    assert error =~ "Only managers and admins"
+    assert error =~ "You can't post announcements"
 
     # a connected patch is bounced back too
     {:ok, lv, _html} = live_as(bob, org_path)
