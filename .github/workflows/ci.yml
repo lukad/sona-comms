@@ -37,13 +37,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Keep in sync with mise.toml. Not read via `version-file` because that
-      # requires strict versions and there is no exact "OTP-29" build.
+      # version-file requires exact versions in mise.toml
       - uses: erlef/setup-beam@v1
         id: beam
         with:
-          otp-version: "29"
-          elixir-version: "1.20.4"
+          version-file: mise.toml
+          version-type: strict
 
       - name: Cache deps
         uses: actions/cache@v6
