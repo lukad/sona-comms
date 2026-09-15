@@ -1,0 +1,36 @@
+<Layouts.app flash={@flash} current_scope={@current_scope}>
+  <div id="dev-users" class="space-y-8">
+    <.header>
+      Switch user
+      <:subtitle>
+        Development only. Each host keeps its own session, so open <code class="text-xs">alice.localhost:4000</code>,
+        <code class="text-xs">bob.localhost:4000</code>
+        and <code class="text-xs">charlie.localhost:4000</code>
+        side by side.
+      </:subtitle>
+    </.header>
+
+    <section :if={@personas != []}>
+      <h2 class="mb-3 text-xs font-semibold tracking-wider text-base-content/50 uppercase">
+        Demo personas
+      </h2>
+      <div class="grid gap-3 sm:grid-cols-3">
+        <.switch_button
+          :for={entry <- @personas}
+          entry={entry}
+          current_scope={@current_scope}
+          featured
+        />
+      </div>
+    </section>
+
+    <section :for={{label, entries} <- @groups}>
+      <h2 class="mb-2 text-xs font-semibold tracking-wider text-base-content/50 uppercase">
+        {label}
+      </h2>
+      <div class="divide-y divide-base-300 overflow-hidden rounded-box border border-base-300 bg-base-100">
+        <.switch_button :for={entry <- entries} entry={entry} current_scope={@current_scope} />
+      </div>
+    </section>
+  </div>
+</Layouts.app>

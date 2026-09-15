@@ -23,6 +23,9 @@ config :sona_comms, SonaCommsWeb.Endpoint,
   secret_key_base: "XEDc09EcIMlsGF0yj/X9jf2J5ZxLc2WpImQ1L1uXKXDcyh8uAPdftbbsODHfwSMm",
   server: false
 
+# Enable dev routes so the dev user switcher can be tested (ADR 0007)
+config :sona_comms, dev_routes: true
+
 # In test we don't send emails
 config :sona_comms, SonaComms.Mailer, adapter: Swoosh.Adapters.Test
 

@@ -77,8 +77,25 @@ defmodule SonaComms.Accounts do
   def register_user(attrs) do
     %User{}
     |> User.email_changeset(attrs)
+    |> User.name_changeset(attrs)
     |> Repo.insert()
   end
+
+  @doc """
+  Returns the name to show for a user: their name, or the local part of
+  their email when no name is set.
+
+  ## Examples
+
+      iex> display_name(%User{name: "Bob"})
+      "Bob"
+
+      iex> display_name(%User{name: nil, email: "bob@example.com"})
+      "bob"
+
+  """
+  def display_name(%User{name: name}) when is_binary(name) and name != "", do: name
+  def display_name(%User{email: email}), do: email |> String.split("@") |> hd()
 
   ## Settings
 

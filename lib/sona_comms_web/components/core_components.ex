@@ -336,6 +336,73 @@ defmodule SonaCommsWeb.CoreComponents do
   end
 
   @doc """
+  Renders a modal.
+
+  It traps focus, and closes on Escape, a click outside it, or the close
+  button. Each of these runs `on_cancel`, typically a `JS.patch/1` back to
+  the parent route. Give the title `id="<id>-title"` and the description
+  `id="<id>-description"` for screen readers.
+
+  ## Examples
+
+      <.modal :if={@live_action == :new_venue} id="venue-modal" show on_cancel={JS.patch(~p"/org")}>
+        <h2 id="venue-modal-title">New venue</h2>
+      </.modal>
+  """
+  attr :id, :string, required: true
+  attr :show, :boolean, default: false
+  attr :on_cancel, JS, default: %JS{}
+  slot :inner_block, required: true
+
+  def modal(assigns) do
+    ~H"""
+    <div
+      id={@id}
+      phx-mounted={@show && show_modal(@id)}
+      phx-remove={hide_modal(@id)}
+      data-cancel={JS.exec(@on_cancel, "phx-remove")}
+      class="relative z-50 hidden"
+    >
+      <div
+        id={"#{@id}-bg"}
+        class="fixed inset-0 bg-base-content/40 backdrop-blur-[2px] transition-opacity"
+        aria-hidden="true"
+      />
+      <div
+        class="fixed inset-0 overflow-y-auto"
+        aria-labelledby={"#{@id}-title"}
+        aria-describedby={"#{@id}-description"}
+        role="dialog"
+        aria-modal="true"
+        tabindex="0"
+      >
+        <div class="flex min-h-full items-center justify-center p-4 sm:p-6">
+          <.focus_wrap
+            id={"#{@id}-container"}
+            phx-window-keydown={JS.exec("data-cancel", to: "##{@id}")}
+            phx-key="escape"
+            phx-click-away={JS.exec("data-cancel", to: "##{@id}")}
+            class="relative hidden w-full max-w-lg rounded-box bg-base-100 p-6 shadow-2xl ring-1 ring-base-300 transition"
+          >
+            <button
+              type="button"
+              phx-click={JS.exec("data-cancel", to: "##{@id}")}
+              class="absolute top-4 right-4 cursor-pointer rounded-full p-1 opacity-50 transition hover:bg-base-200 hover:opacity-100"
+              aria-label={gettext("close")}
+            >
+              <.icon name="hero-x-mark" class="size-5" />
+            </button>
+            <div id={"#{@id}-content"}>
+              {render_slot(@inner_block)}
+            </div>
+          </.focus_wrap>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
   Renders a table with generic styling.
 
   ## Examples
@@ -473,6 +540,32 @@ defmodule SonaCommsWeb.CoreComponents do
         {"transition-all ease-in duration-200", "opacity-100 translate-y-0 sm:scale-100",
          "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"}
     )
+  end
+
+  def show_modal(js \\ %JS{}, id) when is_binary(id) do
+    js
+    |> JS.show(to: "##{id}")
+    |> JS.show(
+      to: "##{id}-bg",
+      time: 300,
+      transition: {"transition-all ease-out duration-300", "opacity-0", "opacity-100"}
+    )
+    |> show("##{id}-container")
+    |> JS.add_class("overflow-hidden", to: "body")
+    |> JS.focus_first(to: "##{id}-content")
+  end
+
+  def hide_modal(js \\ %JS{}, id) when is_binary(id) do
+    js
+    |> JS.hide(
+      to: "##{id}-bg",
+      time: 200,
+      transition: {"transition-all ease-in duration-200", "opacity-100", "opacity-0"}
+    )
+    |> hide("##{id}-container")
+    |> JS.hide(to: "##{id}", time: 200, transition: {"block", "block", "hidden"})
+    |> JS.remove_class("overflow-hidden", to: "body")
+    |> JS.pop_focus()
   end
 
   @doc """

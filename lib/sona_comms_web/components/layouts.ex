@@ -5,6 +5,11 @@ defmodule SonaCommsWeb.Layouts do
   """
   use SonaCommsWeb, :html
 
+  alias SonaComms.Accounts
+  alias SonaComms.Accounts.Scope
+
+  @dev_routes? Application.compile_env(:sona_comms, :dev_routes, false)
+
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
   # skeleton of your application, namely HTML headers
@@ -31,46 +36,98 @@ defmodule SonaCommsWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://phoenix.hexdocs.pm/scopes.html)"
 
+  attr :full_bleed, :boolean,
+    default: false,
+    doc: "fill the viewport below the nav without page padding (the chat)"
+
   slot :inner_block, required: true
 
   def app(assigns) do
-    ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
-        </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://phoenix.hexdocs.pm/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
-      </div>
-    </header>
+    assigns = assign(assigns, :dev_routes?, @dev_routes?)
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
+    ~H"""
+    <div class={["flex flex-col", if(@full_bleed, do: "h-dvh", else: "min-h-dvh")]}>
+      <header class="sticky top-0 z-40 border-b border-base-300 bg-base-100/85 backdrop-blur">
+        <nav class="flex h-14 items-center gap-1 px-3 sm:px-5">
+          <.link
+            navigate={~p"/"}
+            class="group mr-3 flex items-center gap-2 font-semibold tracking-tight"
+          >
+            <span class="grid size-8 place-items-center rounded-lg bg-primary text-primary-content shadow-sm transition group-hover:scale-105">
+              <.icon name="hero-chat-bubble-left-right-solid" class="size-4" />
+            </span>
+            <span class="hidden sm:inline">Sona</span>
+          </.link>
+
+          <%= if signed_in?(@current_scope) do %>
+            <.nav_link navigate={~p"/"}>Chat</.nav_link>
+            <.nav_link :if={Scope.admin?(@current_scope)} id="nav-org" navigate={~p"/org"}>
+              Venues & teams
+            </.nav_link>
+            <.nav_link :if={Scope.admin?(@current_scope)} id="nav-staff" navigate={~p"/org/members"}>
+              Staff
+            </.nav_link>
+          <% end %>
+
+          <div class="flex-1" />
+
+          <.link
+            :if={@dev_routes?}
+            id="nav-dev-switch-user"
+            href={~p"/dev/switch-user"}
+            class="mr-1 flex items-center gap-1 rounded-full border border-dashed border-warning/60 bg-warning/10 px-3 py-1 text-xs font-medium text-warning transition hover:bg-warning/20"
+          >
+            <.icon name="hero-arrows-right-left-micro" class="size-3.5" /> Switch user
+          </.link>
+
+          <%= if signed_in?(@current_scope) do %>
+            <span class="hidden px-2 text-sm font-medium md:inline">
+              {Accounts.display_name(@current_scope.user)}
+            </span>
+            <.nav_link navigate={~p"/users/settings"}>Settings</.nav_link>
+            <.nav_link href={~p"/users/log-out"} method="delete">Log out</.nav_link>
+          <% else %>
+            <.nav_link href={~p"/users/log-in"}>Log in</.nav_link>
+            <.nav_link href={~p"/users/register"}>Register</.nav_link>
+          <% end %>
+
+          <div class="ml-2 hidden sm:block">
+            <.theme_toggle />
+          </div>
+        </nav>
+      </header>
+
+      <main :if={@full_bleed} class="min-h-0 flex-1">
         {render_slot(@inner_block)}
-      </div>
-    </main>
+      </main>
+
+      <main :if={!@full_bleed} class="px-4 py-12 sm:px-6 lg:px-8">
+        <div class="mx-auto max-w-2xl space-y-4">
+          {render_slot(@inner_block)}
+        </div>
+      </main>
+    </div>
 
     <.flash_group flash={@flash} />
     """
   end
+
+  attr :rest, :global, include: ~w(href navigate method)
+  slot :inner_block, required: true
+
+  defp nav_link(assigns) do
+    ~H"""
+    <.link
+      class="rounded-lg px-2.5 py-1.5 text-sm font-medium text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
+      {@rest}
+    >
+      {render_slot(@inner_block)}
+    </.link>
+    """
+  end
+
+  defp signed_in?(%Scope{user: %Accounts.User{}}), do: true
+  defp signed_in?(_scope), do: false
 
   @doc """
   Shows the flash group with standard titles and content.

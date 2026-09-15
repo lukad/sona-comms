@@ -4,6 +4,7 @@ defmodule SonaComms.Accounts.User do
 
   schema "users" do
     field :email, :string
+    field :name, :string
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
@@ -54,6 +55,16 @@ defmodule SonaComms.Accounts.User do
     else
       changeset
     end
+  end
+
+  @doc """
+  A user changeset for setting the display name. The name is optional.
+  """
+  def name_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:name])
+    |> update_change(:name, &String.trim/1)
+    |> validate_length(:name, min: 1, max: 80)
   end
 
   @doc """

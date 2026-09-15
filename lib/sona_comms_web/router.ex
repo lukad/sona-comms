@@ -17,24 +17,9 @@ defmodule SonaCommsWeb.Router do
     plug :accepts, ["json"]
   end
 
-  scope "/", SonaCommsWeb do
-    pipe_through :browser
-
-    get "/", PageController, :home
-  end
-
-  # Other scopes may use custom stacks.
-  # scope "/api", SonaCommsWeb do
-  #   pipe_through :api
-  # end
-
-  # Enable LiveDashboard and Swoosh mailbox preview in development
+  # Enable LiveDashboard, Swoosh mailbox preview and the user switcher in
+  # development (and test). Never compiled into prod.
   if Application.compile_env(:sona_comms, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do
@@ -42,6 +27,10 @@ defmodule SonaCommsWeb.Router do
 
       live_dashboard "/dashboard", metrics: SonaCommsWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
+
+      # the switcher is the dev login mechanism, so it can't require auth (ADR 0007)
+      get "/switch-user", SonaCommsWeb.DevSessionController, :index
+      post "/switch-user/:user_id", SonaCommsWeb.DevSessionController, :create
     end
   end
 
@@ -54,6 +43,24 @@ defmodule SonaCommsWeb.Router do
       on_mount: [{SonaCommsWeb.UserAuth, :require_authenticated}] do
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+
+      # member-gated: on_mount {SonaCommsWeb.OrgAuth, :require_member} inside the module
+      live "/", ChatLive, :index
+      live "/c/:id", ChatLive, :show
+      live "/c/:id/announce", ChatLive, :announce
+      live "/c/:id/announcements/:message_id", ChatLive, :receipts
+      live "/new/dm", ChatLive, :new_dm
+      live "/new/group", ChatLive, :new_group
+
+      # admin-gated: on_mount {SonaCommsWeb.OrgAuth, :require_admin} inside the module
+      live "/org", OrgLive.Index, :index
+      live "/org/venues/new", OrgLive.Index, :new_venue
+      live "/org/venues/:venue_id/teams/new", OrgLive.Index, :new_team
+      live "/org/members", OrgLive.Members, :index
+      live "/org/members/new", OrgLive.Members, :new
+
+      # authenticated only: where users without an active membership land
+      live "/no-access", NoAccessLive, :index
     end
 
     post "/users/update-password", UserSessionController, :update_password

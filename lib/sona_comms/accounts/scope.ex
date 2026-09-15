@@ -4,21 +4,21 @@ defmodule SonaComms.Accounts.Scope do
 
   The `SonaComms.Accounts.Scope` allows public interfaces to receive
   information about the caller, such as if the call is initiated from an
-  end-user, and if so, which user. Additionally, such a scope can carry fields
-  such as "super user" or other privileges for use in authorization checks,
-  or to ensure specific code paths can only be accessed for a given scope.
+  end-user, and if so, which user.
 
-  It is useful for logging as well as for scoping pubsub subscriptions and
-  broadcasts when a caller subscribes to an interface or performs a particular
-  action.
+  The scope only holds plain values. `organisation_id` and `admin?` are set
+  by `SonaComms.Org.put_member_scope/1` when a member LiveView mounts.
+  `admin?` is a cache for UI gating only and is never trusted for writes:
+  contexts re-check the database.
 
-  Feel free to extend the fields on this struct to fit the needs of
-  growing application requirements.
+  `for_system/1` builds a privileged scope with no user. It is only used by
+  seeds and tests to bootstrap an organisation through the normal context
+  functions.
   """
 
   alias SonaComms.Accounts.User
 
-  defstruct user: nil
+  defstruct user: nil, organisation_id: nil, admin?: false, system?: false
 
   @doc """
   Creates a scope for the given user.
@@ -30,4 +30,17 @@ defmodule SonaComms.Accounts.Scope do
   end
 
   def for_user(nil), do: nil
+
+  @doc """
+  Creates a system scope for the given organisation. Seeds and tests only.
+  """
+  def for_system(organisation_id) do
+    %__MODULE__{organisation_id: organisation_id, system?: true}
+  end
+
+  @doc """
+  Returns the cached admin flag. For UI gating only.
+  """
+  def admin?(%__MODULE__{admin?: admin?}), do: admin?
+  def admin?(_), do: false
 end
