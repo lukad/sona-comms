@@ -15,6 +15,8 @@ To start your Phoenix server:
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 
+`mix setup` will seed the database with sample data needed for the demo. In development, you can visit [`localhost:4000/dev/switch-user`](http://localhost:4000/dev/switch-user) to switch between users.
+
 ## Demo
 
 1. Log in as Alice (Admin) in one browser, Bob (head chef, Bristol) in another, and finally Charlie (staff, Bristol) in a third.
