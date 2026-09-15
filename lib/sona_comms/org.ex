@@ -81,7 +81,8 @@ defmodule SonaComms.Org do
 
   @doc """
   Lists the organisation's venues ordered by name, with teams preloaded,
-  ordered by name, and each team's `member_count` set.
+  ordered by name. Each venue's and team's `member_count` is set to the
+  number of distinct people with an active membership there.
   """
   def list_venues(%Scope{} = scope) do
     with :ok <- authorize(scope) do
@@ -95,8 +96,12 @@ defmodule SonaComms.Org do
 
       Repo.all(
         from v in Venue,
+          left_join: m in Membership,
+          on: m.venue_id == v.id and is_nil(m.ended_at),
           where: v.organisation_id == ^scope.organisation_id,
+          group_by: v.id,
           order_by: v.name,
+          select_merge: %{member_count: count(m.user_id, :distinct)},
           preload: [teams: ^teams]
       )
     end

@@ -6,6 +6,8 @@ defmodule SonaComms.Org.Venue do
 
   schema "venues" do
     field :name, :string
+    # active people at the venue, on a team or venue-level; set by Org.list_venues/1
+    field :member_count, :integer, virtual: true, default: 0
 
     belongs_to :organisation, Organisation
     has_many :teams, Team
