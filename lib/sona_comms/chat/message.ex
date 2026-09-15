@@ -13,6 +13,8 @@ defmodule SonaComms.Chat.Message do
     field :recipient_count, :integer, virtual: true
     # :pending | :acknowledged | nil (not a recipient)
     field :my_ack, :any, virtual: true
+    # when the viewer acknowledged it, for "Read at 14:02"; nil unless my_ack is :acknowledged
+    field :my_acknowledged_at, :utc_datetime_usec, virtual: true
 
     belongs_to :conversation, Conversation
     belongs_to :sender, SonaComms.Accounts.User

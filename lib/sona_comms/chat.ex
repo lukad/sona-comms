@@ -12,7 +12,8 @@ defmodule SonaComms.Chat do
 
   PubSub topics (ADR 0006):
 
-    * `"conversation:<id>"` - `{:message_created, conversation_id, message_id}`
+    * `"conversation:<id>"` - `{:message_created, conversation_id, message_id}`,
+      `{:ack_updated, message_id, %{acknowledged: n, total: n}}`
     * `"user:<id>"` - `{:conversation_joined, id}`, `{:conversation_left, id}`,
       `{:conversation_read, id}`
   """
@@ -40,6 +41,7 @@ defmodule SonaComms.Chat do
     |> conversations_query()
     |> Repo.all()
     |> put_display_titles(user_id)
+    |> put_pending_ack_counts(user_id)
   end
 
   @doc """
@@ -52,7 +54,11 @@ defmodule SonaComms.Chat do
     with {:ok, id} <- cast_id(id),
          %Conversation{} = conversation <-
            user_id |> conversations_query() |> where([c], c.id == ^id) |> Repo.one() do
-      [conversation] = put_display_titles([conversation], user_id)
+      [conversation] =
+        [conversation]
+        |> put_display_titles(user_id)
+        |> put_pending_ack_counts(user_id)
+
       {:ok, conversation}
     else
       _ -> {:error, :not_found}
@@ -153,6 +159,7 @@ defmodule SonaComms.Chat do
         |> messages_before(Keyword.get(opts, :before))
         |> Repo.all()
         |> Enum.reverse()
+        |> put_announcement_fields(participant.user_id)
 
       {:ok, messages}
     end
@@ -179,6 +186,7 @@ defmodule SonaComms.Chat do
                where: m.id == ^message_id,
                preload: :sender
            ) do
+      [message] = put_announcement_fields([message], user_id)
       {:ok, message}
     else
       _ -> {:error, :not_found}
@@ -253,6 +261,243 @@ defmodule SonaComms.Chat do
 
       broadcast_user(participant.user_id, {:conversation_read, participant.conversation_id})
     end
+  end
+
+  ## Announcements (ADR 0005)
+
+  @doc """
+  Returns a changeset for the announcement form.
+  """
+  def change_announcement(attrs \\ %{}) do
+    Message.changeset(%Message{kind: :announcement}, attrs)
+  end
+
+  @doc """
+  Posts an announcement and asks every other active participant to
+  acknowledge it.
+
+  Requires the participant's `can_announce`, so DMs and group chats always
+  return `{:error, :unauthorized}`. Receipts are a snapshot: one per active
+  participant except the sender, inserted in the same transaction. Broadcasts
+  `{:message_created, conversation_id, message_id}` and returns the message
+  as `get_message/2` does.
+  """
+  def post_announcement(%Scope{} = scope, conversation_id, attrs) do
+    with {:ok, participant} <- fetch_participation(scope, conversation_id),
+         {:ok, message} <- Repo.transact(fn -> insert_announcement(participant, attrs) end) do
+      broadcast_conversation(
+        message.conversation_id,
+        {:message_created, message.conversation_id, message.id}
+      )
+
+      get_message(scope, message.id)
+    end
+  end
+
+  # The lock serialises with sync_participants/2: a participant it removes
+  # can't be left holding a receipt from an announcement committed after.
+  defp insert_announcement(%Participant{} = participant, attrs) do
+    lock_conversation!(participant.conversation_id)
+
+    with :ok <- authorize_announcement(participant),
+         {:ok, message} <- insert_message(participant, :announcement, attrs) do
+      insert_receipts(message)
+      {:ok, message}
+    end
+  end
+
+  # Re-read under the lock: can_announce may have changed since the fetch
+  defp authorize_announcement(%Participant{id: participant_id}) do
+    if Repo.exists?(
+         from p in Participant,
+           where: p.id == ^participant_id and is_nil(p.left_at) and p.can_announce
+       ) do
+      :ok
+    else
+      {:error, :unauthorized}
+    end
+  end
+
+  defp insert_receipts(%Message{} = message) do
+    recipients =
+      from p in Participant,
+        where:
+          p.conversation_id == ^message.conversation_id and is_nil(p.left_at) and
+            p.user_id != ^message.sender_id,
+        select: %{
+          message_id: type(^message.id, :id),
+          user_id: p.user_id,
+          inserted_at: type(^message.inserted_at, :utc_datetime_usec)
+        }
+
+    Repo.insert_all(Receipt, recipients)
+  end
+
+  @doc """
+  Acknowledges an announcement for the user ("I've read this").
+
+  Idempotent: acknowledging again keeps the first time and broadcasts
+  nothing. Returns `{:error, :not_found}` unless the user is an active
+  participant holding a receipt for it. On change it broadcasts
+  `{:ack_updated, message_id, %{acknowledged: n, total: n}}`.
+  """
+  def acknowledge(%Scope{user: %User{id: user_id}}, message_id) do
+    with {:ok, message_id} <- cast_id(message_id),
+         {%Receipt{} = receipt, conversation_id} <-
+           Repo.one(
+             from r in Receipt,
+               join: m in assoc(r, :message),
+               join: p in Participant,
+               on:
+                 p.conversation_id == m.conversation_id and p.user_id == r.user_id and
+                   is_nil(p.left_at),
+               where: r.message_id == ^message_id and r.user_id == ^user_id,
+               select: {r, m.conversation_id}
+           ) do
+      acknowledge_receipt(receipt, conversation_id)
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def acknowledge(_scope, _message_id), do: {:error, :not_found}
+
+  defp acknowledge_receipt(%Receipt{acknowledged_at: nil} = receipt, conversation_id) do
+    # acknowledged_at IS NULL keeps the first time if two tabs race
+    case Repo.update_all(
+           from(r in Receipt,
+             where: r.id == ^receipt.id and is_nil(r.acknowledged_at),
+             select: r
+           ),
+           set: [acknowledged_at: DateTime.utc_now()]
+         ) do
+      {1, [receipt]} ->
+        broadcast_ack_updated(conversation_id, [receipt.message_id])
+        {:ok, receipt}
+
+      {0, []} ->
+        {:ok, Repo.reload!(receipt)}
+    end
+  end
+
+  defp acknowledge_receipt(%Receipt{} = receipt, _conversation_id), do: {:ok, receipt}
+
+  @doc """
+  Lists an announcement's receipts with the user preloaded, ordered by name.
+
+  Only the sender and participants who can announce in the conversation may
+  see them. Other participants get `{:error, :unauthorized}`;
+  non-participants get `{:error, :not_found}`, as do text messages.
+  """
+  def list_receipts(%Scope{user: %User{id: user_id}}, message_id) do
+    with {:ok, message_id} <- cast_id(message_id),
+         {%Message{} = message, %Participant{} = participant} <-
+           Repo.one(
+             from m in Message,
+               join: p in Participant,
+               on:
+                 p.conversation_id == m.conversation_id and p.user_id == ^user_id and
+                   is_nil(p.left_at),
+               where: m.id == ^message_id and m.kind == ^:announcement,
+               select: {m, p}
+           ),
+         :ok <- authorize_receipts(message, participant) do
+      receipts =
+        Repo.all(
+          from r in Receipt,
+            join: u in assoc(r, :user),
+            where: r.message_id == ^message.id,
+            order_by: [asc_nulls_last: u.name, asc: u.email],
+            preload: [user: u]
+        )
+
+      {:ok, receipts}
+    else
+      {:error, :unauthorized} -> {:error, :unauthorized}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def list_receipts(_scope, _message_id), do: {:error, :not_found}
+
+  defp authorize_receipts(%Message{sender_id: user_id}, %Participant{user_id: user_id}), do: :ok
+  defp authorize_receipts(_message, %Participant{can_announce: true}), do: :ok
+  defp authorize_receipts(_message, _participant), do: {:error, :unauthorized}
+
+  # Sets ack_count, recipient_count, my_ack and my_acknowledged_at on
+  # announcements, as seen by user_id. Text messages keep nil.
+  defp put_announcement_fields(messages, user_id) do
+    ids = for %Message{kind: :announcement, id: id} <- messages, do: id
+    stats = announcement_stats(ids, user_id)
+
+    Enum.map(messages, fn
+      %Message{kind: :announcement, id: id} = message ->
+        {acknowledged, total, mine, my_acknowledged_at} = Map.get(stats, id, {0, 0, 0, nil})
+
+        %{
+          message
+          | ack_count: acknowledged,
+            recipient_count: total,
+            my_ack: my_ack(mine, my_acknowledged_at),
+            my_acknowledged_at: my_acknowledged_at
+        }
+
+      message ->
+        message
+    end)
+  end
+
+  defp announcement_stats([], _user_id), do: %{}
+
+  defp announcement_stats(message_ids, user_id) do
+    from(r in Receipt,
+      where: r.message_id in ^message_ids,
+      group_by: r.message_id,
+      select:
+        {r.message_id,
+         {count(r.acknowledged_at), count(r.id), filter(count(r.id), r.user_id == ^user_id),
+          type(filter(max(r.acknowledged_at), r.user_id == ^user_id), :utc_datetime_usec)}}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  defp my_ack(0, _acknowledged_at), do: nil
+  defp my_ack(_mine, nil), do: :pending
+  defp my_ack(_mine, %DateTime{}), do: :acknowledged
+
+  defp put_pending_ack_counts([], _user_id), do: []
+
+  defp put_pending_ack_counts(conversations, user_id) do
+    ids = Enum.map(conversations, & &1.id)
+
+    counts =
+      from(r in Receipt,
+        join: m in assoc(r, :message),
+        where: r.user_id == ^user_id and is_nil(r.acknowledged_at) and m.conversation_id in ^ids,
+        group_by: m.conversation_id,
+        select: {m.conversation_id, count(r.id)}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    Enum.map(conversations, &%{&1 | pending_ack_count: Map.get(counts, &1.id, 0)})
+  end
+
+  defp broadcast_ack_updated(conversation_id, message_ids) do
+    counts =
+      from(r in Receipt,
+        where: r.message_id in ^message_ids,
+        group_by: r.message_id,
+        select: {r.message_id, %{acknowledged: count(r.acknowledged_at), total: count(r.id)}}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    Enum.each(message_ids, fn message_id ->
+      counts = Map.get(counts, message_id, %{acknowledged: 0, total: 0})
+      broadcast_conversation(conversation_id, {:ack_updated, message_id, counts})
+    end)
   end
 
   ## DMs and groups
@@ -449,10 +694,7 @@ defmodule SonaComms.Chat do
 
   def sync_participants(%Conversation{id: conversation_id}, desired) when is_map(desired) do
     now = DateTime.utc_now()
-
-    Repo.one!(
-      from c in Conversation, where: c.id == ^conversation_id, lock: "FOR UPDATE", select: c.id
-    )
+    lock_conversation!(conversation_id)
 
     active =
       Repo.all(
@@ -504,6 +746,10 @@ defmodule SonaComms.Chat do
   @doc """
   Publishes events returned by `sync_participants/2` and
   `revoke_org_access/2`. Call after commit.
+
+  `{:receipts_removed, conversation_id, message_ids}` becomes one
+  `{:ack_updated, message_id, %{acknowledged: n, total: n}}` per message on
+  `"conversation:<id>"`, with the counts after the removal.
   """
   def broadcast(events) when is_list(events) do
     Enum.each(events, &broadcast_event/1)
@@ -515,8 +761,8 @@ defmodule SonaComms.Chat do
   defp broadcast_event({:left, conversation_id, user_id}),
     do: broadcast_user(user_id, {:conversation_left, conversation_id})
 
-  # Announcement counts aren't broadcast until WP2b turns this into {:ack_updated, ...}
-  defp broadcast_event({:receipts_removed, _conversation_id, _message_ids}), do: :ok
+  defp broadcast_event({:receipts_removed, conversation_id, message_ids}),
+    do: broadcast_ack_updated(conversation_id, message_ids)
 
   ## Participants
 
@@ -536,6 +782,13 @@ defmodule SonaComms.Chat do
   end
 
   defp fetch_participation(_scope, _conversation_id), do: {:error, :not_found}
+
+  # Serialises participant sync and announcement snapshots per conversation
+  defp lock_conversation!(conversation_id) do
+    Repo.one!(
+      from c in Conversation, where: c.id == ^conversation_id, lock: "FOR UPDATE", select: c.id
+    )
+  end
 
   defp org_members?(org_id, user_ids) do
     user_ids = Enum.uniq(user_ids)
