@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+
+    env:
+      MIX_ENV: test
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Keep in sync with mise.toml. Not read via `version-file` because that
+      # requires strict versions and there is no exact "OTP-29" build.
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.4"
+
+      - name: Cache deps
+        uses: actions/cache@v6
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      - name: Cache _build
+        uses: actions/cache@v6
+        with:
+          path: _build
+          key: build-${{ runner.os }}-otp${{ steps.beam.outputs.otp-version }}-elixir${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: build-${{ runner.os }}-otp${{ steps.beam.outputs.otp-version }}-elixir${{ steps.beam.outputs.elixir-version }}-
+
+      - run: mix deps.get
+
+      # --force so a restored _build can't hide warnings in unchanged files
+      - run: mix compile --warnings-as-errors --force
+
+      - run: mix deps.unlock --check-unused
+
+      - run: mix format --check-formatted
+
+      # The test alias creates and migrates the database first
+      - run: mix test
