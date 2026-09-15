@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": ["Bash(mix *)", "Bash(git *)", "Edit", "Write", "Read", "mcp__tidewave__*"]
+  },
+  "hooks": {
+    "PostToolUse": [{
+      "matcher": "Edit|Write|MultiEdit",
+      "hooks": [{"type": "command",
+        "command": "f=$(jq -r .tool_input.file_path); case \"$f\" in *.ex|*.exs|*.heex) mix format \"$f\";; esac; exit 0"}]
+    }],
+    "Stop": [{
+      "matcher": "",
+      "hooks": [{"type": "command",
+        "command": "mix precommit >/tmp/precommit.log 2>&1 || { tail -40 /tmp/precommit.log >&2; exit 2; }"}]
+    }]
+  }
+}

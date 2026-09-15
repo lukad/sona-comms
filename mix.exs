@@ -11,7 +11,8 @@ defmodule SonaComms.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      usage_rules: usage_rules()
     ]
   end
 
@@ -40,6 +41,8 @@ defmodule SonaComms.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:tidewave, "~> 0.9", only: [:dev]},
+      {:usage_rules, "~> 1.0", only: [:dev]},
       {:bcrypt_elixir, "~> 3.0"},
       {:phoenix, "~> 1.8.14"},
       {:phoenix_ecto, "~> 4.5"},
@@ -97,6 +100,36 @@ defmodule SonaComms.MixProject do
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+    ]
+  end
+
+  defp usage_rules do
+    [
+      # reuse Phoenix's file; sync manages the marked block
+      file: "AGENTS.md",
+      usage_rules: [
+        :usage_rules,
+        :elixir,
+        :otp,
+        :phoenix,
+        "phoenix:all",
+        ~r/^phoenix_/
+      ],
+      skills: [
+        location: ".claude/skills",
+        build: [
+          "phoenix-liveview": [
+            description:
+              "Load when editing lib/*_web/**, any .heex, or on Phoenix.LiveView / Phoenix.Component errors.",
+            usage_rules: [:phoenix, "phoenix:liveview", "phoenix:html", :phoenix_live_view]
+          ],
+          "ecto-data": [
+            description:
+              "Load when editing lib/sona_comms/**, priv/repo/**, or on Ecto.Query / changeset errors.",
+            usage_rules: ["phoenix:ecto", :ecto, :ecto_sql]
+          ]
+        ]
+      ]
     ]
   end
 end
