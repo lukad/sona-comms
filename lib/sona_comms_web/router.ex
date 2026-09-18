@@ -49,6 +49,7 @@ defmodule SonaCommsWeb.Router do
       live "/c/:id", ChatLive, :show
       live "/c/:id/announce", ChatLive, :announce
       live "/c/:id/announcements/:message_id", ChatLive, :receipts
+      live "/announcements", ChatLive, :announcements
       live "/new/dm", ChatLive, :new_dm
       live "/new/group", ChatLive, :new_group
 

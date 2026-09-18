@@ -23,6 +23,7 @@
 - **Visibility:** the sender and participants with `can_announce` see "X of Y acknowledged" and the pending and acknowledged lists. Recipients see only their own state.
 - Changes are pushed as `{:ack_updated, message_id, %{acknowledged: x, total: y}}` on `"conversation:<id>"` ([ADR 0006](0006-realtime-pubsub-contract.md)). `my_ack` differs per viewer, so receivers always refetch the message through `Chat.get_message/2` rather than rendering from a broadcast.
 - **UI copy says "read"**, to match PRODUCT.md: the button is "I've read this", the summary "X of Y read", and the lists "Read" / "Not yet read". Code keeps `acknowledge` and receipts. The explicit button is what separates it from the automatic unread tracking.
+- **Priority** (added 2026-09-18, after customer feedback that staff were overwhelmed by announcements): every announcement has a `priority` of `:low`, `:mid` (the default) or `:high`, and text messages have none. A check constraint enforces this. Pending `:high` announcements open a modal on the chat screens that can't be dismissed until the recipient has read them, one at a time. Every pending announcement also appears in the `/announcements` list, high first, then mid, then low. `Chat.list_pending_announcements/1` feeds both. The admin screens under `/org` don't block.
 
 ## Consequences
 

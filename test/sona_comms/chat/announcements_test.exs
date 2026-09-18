@@ -107,6 +107,25 @@ defmodule SonaComms.Chat.AnnouncementsTest do
       assert Repo.aggregate(Receipt, :count) == 0
     end
 
+    test "priority defaults to :mid and must be low, mid or high", %{
+      alice_scope: scope,
+      conversations: c
+    } do
+      assert {:ok, %Message{priority: :mid}} =
+               Chat.post_announcement(scope, c.org.id, %{body: "Rota is up"})
+
+      for {param, priority} <- [{"low", :low}, {"high", :high}] do
+        assert {:ok, %Message{priority: ^priority}} =
+                 Chat.post_announcement(scope, c.org.id, %{body: "Hi", priority: param})
+      end
+
+      assert {:error, changeset} =
+               Chat.post_announcement(scope, c.org.id, %{body: "Hi", priority: "urgent"})
+
+      assert "is invalid" in errors_on(changeset).priority
+      assert %Message{priority: nil} = message_fixture(scope, c.org)
+    end
+
     test "Alice's org announcement creates 45 receipts, none for her, and broadcasts",
          %{
            alice: alice,
@@ -268,6 +287,45 @@ defmodule SonaComms.Chat.AnnouncementsTest do
     assert {:ok, [_, %{my_ack: :pending}, _]} = Chat.list_messages(charlie_scope, c.org.id)
 
     assert pending_acks(alice_scope)["Sona Hospitality Group"] == 0
+  end
+
+  describe "list_pending_announcements/1" do
+    test "lists what's left to read, high first and newest first within a priority", %{
+      alice_scope: alice_scope,
+      charlie_scope: charlie_scope,
+      conversations: c
+    } do
+      low = announcement_fixture(alice_scope, c.org, priority: :low)
+      old_high = announcement_fixture(alice_scope, c.bristol, priority: :high)
+      mid = announcement_fixture(alice_scope, c.org, priority: :mid)
+      new_high = announcement_fixture(alice_scope, c.org, priority: :high)
+      read = announcement_fixture(alice_scope, c.org, priority: :high)
+      {:ok, _} = Chat.acknowledge(charlie_scope, read.id)
+      message_fixture(alice_scope, c.org)
+
+      pending = Chat.list_pending_announcements(charlie_scope)
+
+      assert Enum.map(pending, & &1.id) == [new_high.id, old_high.id, mid.id, low.id]
+      assert Enum.all?(pending, &(&1.my_ack == :pending))
+      assert [%{conversation: %{title: "Sona Hospitality Group"}, sender: %{}} | _] = pending
+
+      # the sender holds no receipts
+      assert Chat.list_pending_announcements(alice_scope) == []
+    end
+
+    test "drops announcements from conversations the user has left", %{
+      alice_scope: alice_scope,
+      charlie: charlie,
+      charlie_scope: charlie_scope,
+      conversations: c
+    } do
+      announcement_fixture(alice_scope, c.org, priority: :high)
+      assert [_] = Chat.list_pending_announcements(charlie_scope)
+
+      {:ok, _} = Org.end_membership(alice_scope, Repo.get_by!(Membership, user_id: charlie.id).id)
+
+      assert Chat.list_pending_announcements(charlie_scope) == []
+    end
   end
 
   describe "offboarding" do

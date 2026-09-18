@@ -166,6 +166,7 @@ belongs_to :conversation, Conversation        # NOT NULL, on_delete: :delete_all
 belongs_to :sender, SonaComms.Accounts.User   # NOT NULL
 field :kind, Ecto.Enum, values: [:text, :announcement], default: :text   # NOT NULL
 field :body, :string                          # text column, NOT NULL, 1..4000 chars
+field :priority, Ecto.Enum, values: [:low, :mid, :high]   # announcements only (check constraint), default :mid
 # virtual, announcements only, per viewer, populated by WP2b
 field :ack_count, :integer, virtual: true
 field :recipient_count, :integer, virtual: true
@@ -317,6 +318,9 @@ post_announcement(Scope.t(), conversation_id, map()) ::
 acknowledge(Scope.t(), message_id) :: {:ok, Receipt.t()} | {:error, :not_found}   # idempotent
 list_receipts(Scope.t(), message_id) :: {:ok, [Receipt.t()]} | {:error, :not_found | :unauthorized}
   # :not_found for non-participants; :unauthorized unless sender or a can_announce participant; user preloaded
+list_pending_announcements(Scope.t()) :: [Message.t()]
+  # the user's unacknowledged receipts in active conversations; high, mid, low, then newest first;
+  # sender and conversation preloaded (ADR 0005, priority)
 # and: get_message/2, list_messages/3, get_conversation/2 and list_conversations/1 populate
 #      ack_count, recipient_count, my_ack and pending_ack_count
 # and: broadcast/1 turns {:receipts_removed, ...} into {:ack_updated, ...}
@@ -376,6 +380,7 @@ scope "/", SonaCommsWeb do
     live "/c/:id", ChatLive, :show
     live "/c/:id/announce", ChatLive, :announce
     live "/c/:id/announcements/:message_id", ChatLive, :receipts
+    live "/announcements", ChatLive, :announcements
     live "/new/dm", ChatLive, :new_dm
     live "/new/group", ChatLive, :new_group
 
@@ -491,7 +496,7 @@ ChatLive template obligations (WP2a):
 |---|---|
 | WP1 | `#dev-users`, `#switch-to-<user_id>`, `#nav-dev-switch-user`, `#nav-org`, `#nav-staff`, `#no-access` |
 | WP2a | `#conversations`, `#conversations-<id>`, `#unread-<conversation_id>`, `#pending-acks-<conversation_id>`, `#conversation-header`, `#messages`, `#messages-<id>`, `#message-form`, `#no-conversation-selected`, `#new-dm-form`, `#new-group-form`, `#leave-group` |
-| WP2b | `#announce-button`, `#announcement-form`, `#ack-<message_id>` (button), `#acked-<message_id>`, `#ack-summary-<message_id>`, `#receipts-modal`, `#pending-receipts`, `#read-receipts` |
+| WP2b | `#announce-button`, `#announcement-form`, `#ack-<message_id>` (button), `#acked-<message_id>`, `#ack-summary-<message_id>`, `#receipts-modal`, `#pending-receipts`, `#read-receipts`; for priority: `#announcement-priority`, `#urgent-announcement-modal`, `#urgent-ack-<message_id>`, `#announcements-link`, `#pending-announcements-count`, `#pending-announcements`, `#list-ack-<message_id>`, `#pending-announcement-link-<message_id>` |
 | WP2c | `#venues`, `#venues-<id>`, `#new-venue-button`, `#venue-form`, `#new-team-<venue_id>`, `#team-form`, `#members`, `#members-<membership_id>`, `#member-venue-filter`, `#membership-form`, `#end-membership-<membership_id>` (confirmed with `data-confirm`) |
 
 WP1 stubs already render `#conversations`, `#conversations-<id>`, `#unread-<id>`, `#pending-acks-<id>`, `#conversation-header` and `#messages`, so WP2a restyles them without renaming.
