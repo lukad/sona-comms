@@ -55,12 +55,16 @@ defmodule SonaCommsWeb.AnnouncementComponents do
       id={"announcement-#{@message.id}"}
       class="relative overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 shadow-sm dark:border-amber-400/25 dark:from-amber-400/10 dark:to-amber-400/5"
     >
-      <div class="absolute inset-y-0 left-0 w-1 bg-amber-400" aria-hidden="true" />
+      <div
+        class={["absolute inset-y-0 left-0 w-1", priority_bar(@message.priority)]}
+        aria-hidden="true"
+      />
       <div class="py-4 pr-4 pl-5">
         <header class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <span class="inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2 py-0.5 font-semibold tracking-wide text-amber-800 uppercase dark:text-amber-200">
             <.icon name="hero-megaphone-micro" class="size-3.5" /> Announcement
           </span>
+          <.priority_badge id={"announcement-#{@message.id}-priority"} priority={@message.priority} />
           <span class="font-medium text-base-content/80">
             {Accounts.display_name(@message.sender)}
           </span>
@@ -176,7 +180,8 @@ defmodule SonaCommsWeb.AnnouncementComponents do
           class="w-full resize-y rounded-xl border border-base-300 bg-base-100 px-3.5 py-3 text-[15px] leading-relaxed shadow-xs transition outline-none placeholder:text-base-content/40 focus:border-amber-400 focus:ring-4 focus:ring-amber-400/20"
           error_class="border-error focus:border-error focus:ring-error/20"
         />
-        <div class="mt-4 flex items-center justify-end gap-2">
+        <.priority_picker field={@form[:priority]} />
+        <div class="mt-5 flex items-center justify-end gap-2">
           <.link
             patch={~p"/c/#{@conversation.id}"}
             class="rounded-full px-4 py-2 text-sm font-medium text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
@@ -286,6 +291,316 @@ defmodule SonaCommsWeb.AnnouncementComponents do
   end
 
   def announcement_modal(assigns), do: ~H""
+
+  defp priorities, do: [:low, :mid, :high]
+
+  attr :field, Phoenix.HTML.FormField, required: true
+
+  defp priority_picker(assigns) do
+    assigns = assign(assigns, :selected, to_string(assigns.field.value))
+
+    ~H"""
+    <fieldset id="announcement-priority" class="mt-4">
+      <legend class="mb-2 text-sm font-medium text-base-content">Priority</legend>
+      <div class="grid grid-cols-3 gap-2">
+        <label
+          :for={priority <- priorities()}
+          for={"#{@field.id}-#{priority}"}
+          class={[
+            "flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition duration-150 has-focus-visible:ring-4",
+            if(@selected == to_string(priority),
+              do: priority_selected(priority),
+              else:
+                "border-base-300 text-base-content/70 hover:border-base-content/30 hover:bg-base-200/60 hover:text-base-content"
+            )
+          ]}
+        >
+          <input
+            type="radio"
+            id={"#{@field.id}-#{priority}"}
+            name={@field.name}
+            value={priority}
+            checked={@selected == to_string(priority)}
+            class="sr-only"
+          />
+          <.icon name={priority_icon(priority)} class="size-4" />
+          {priority_label(priority)}
+        </label>
+      </div>
+      <p id="announcement-priority-help" class="mt-2 text-xs text-base-content/60">
+        {priority_help(@selected)}
+      </p>
+    </fieldset>
+    """
+  end
+
+  defp priority_selected(:low),
+    do: "border-base-content/30 bg-base-200 text-base-content ring-base-content/10"
+
+  defp priority_selected(:mid),
+    do:
+      "border-amber-400 bg-amber-50 text-amber-800 ring-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200"
+
+  defp priority_selected(:high),
+    do:
+      "border-red-400 bg-red-50 text-red-700 ring-red-400/20 dark:bg-red-400/10 dark:text-red-300"
+
+  defp priority_help("low"), do: "No rush. It waits in everyone's announcements list."
+
+  defp priority_help("high"),
+    do: "Everyone has to read it before they can do anything else in the app."
+
+  defp priority_help(_mid),
+    do: "It waits in everyone's announcements list, above low priority ones."
+
+  @doc """
+  A "High", "Mid" or "Low priority" pill.
+  """
+  attr :priority, :atom, required: true
+  attr :id, :string, default: nil
+
+  def priority_badge(assigns) do
+    ~H"""
+    <span
+      id={@id}
+      class={[
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
+        priority_badge_class(@priority)
+      ]}
+    >
+      <.icon name={priority_icon(@priority)} class="size-3.5" />
+      {priority_label(@priority)} priority
+    </span>
+    """
+  end
+
+  defp priority_badge_class(:high),
+    do: "bg-red-500/10 text-red-700 ring-red-500/25 dark:text-red-300"
+
+  defp priority_badge_class(:low),
+    do: "bg-base-content/5 text-base-content/60 ring-base-content/10"
+
+  defp priority_badge_class(_mid),
+    do: "bg-amber-400/15 text-amber-800 ring-amber-400/30 dark:text-amber-200"
+
+  defp priority_bar(:high), do: "bg-red-500"
+  defp priority_bar(:low), do: "bg-base-content/20"
+  defp priority_bar(_mid), do: "bg-amber-400"
+
+  defp priority_icon(:high), do: "hero-exclamation-triangle-micro"
+  defp priority_icon(:low), do: "hero-arrow-down-micro"
+  defp priority_icon(_mid), do: "hero-minus-micro"
+
+  defp priority_label(:high), do: "High"
+  defp priority_label(:low), do: "Low"
+  defp priority_label(_mid), do: "Mid"
+
+  @doc """
+  The modal for a pending high priority announcement
+  (`#urgent-announcement-modal`). It can't be dismissed: it goes away when
+  "I've read this" (`#urgent-ack-<id>`) acknowledges it, and the next one
+  takes its place.
+  """
+  attr :message, :map, required: true
+
+  def urgent_announcement_modal(assigns) do
+    ~H"""
+    <.modal id="urgent-announcement-modal" show dismissible={false}>
+      <div class="flex items-start gap-3">
+        <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-red-100 text-red-600 dark:bg-red-400/15 dark:text-red-300">
+          <.icon name="hero-exclamation-triangle" class="size-5" />
+        </span>
+        <div class="min-w-0">
+          <h2 id="urgent-announcement-modal-title" class="text-lg font-semibold tracking-tight">
+            Please read this now
+          </h2>
+          <p class="mt-0.5 text-sm text-base-content/70">
+            High priority announcement from
+            <span class="font-medium text-base-content">
+              {Accounts.display_name(@message.sender)}
+            </span>
+            in <span class="font-medium text-base-content">{@message.conversation.title}</span>
+          </p>
+        </div>
+      </div>
+
+      <p
+        id="urgent-announcement-modal-description"
+        class="mt-5 max-h-80 overflow-y-auto rounded-xl border border-red-200 bg-red-50/60 px-4 py-3 text-[15px] leading-relaxed break-words whitespace-pre-line text-base-content dark:border-red-400/25 dark:bg-red-400/5"
+      >
+        {@message.body}
+      </p>
+
+      <div class="mt-5 flex items-center justify-between gap-3">
+        <span class="text-xs text-base-content/50">
+          Sent <.local_time id={"urgent-announcement-#{@message.id}-at"} at={@message.inserted_at} />
+        </span>
+        <button
+          id={"urgent-ack-#{@message.id}"}
+          type="button"
+          phx-click="acknowledge"
+          phx-value-id={@message.id}
+          phx-disable-with="Saving…"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-red-700/20 transition hover:-translate-y-px hover:bg-red-700 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 active:translate-y-0"
+        >
+          <.icon name="hero-check-mini" class="size-4" /> I've read this
+        </button>
+      </div>
+    </.modal>
+    """
+  end
+
+  @doc """
+  The sidebar entry for the `:announcements` list (`#announcements-link`),
+  with the number still to read (`#pending-announcements-count`).
+  """
+  attr :count, :integer, required: true
+  attr :active, :boolean, default: false
+
+  def announcements_link(assigns) do
+    ~H"""
+    <.link
+      id="announcements-link"
+      patch={~p"/announcements"}
+      aria-current={@active && "page"}
+      class={[
+        "flex items-center gap-3 rounded-xl px-2.5 py-2 transition-colors duration-150",
+        if(@active,
+          do: "bg-primary/10 ring-1 ring-primary/15 ring-inset",
+          else: "hover:bg-base-300/50"
+        )
+      ]}
+    >
+      <span
+        aria-hidden="true"
+        class="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-400/15 text-amber-700 dark:text-amber-300"
+      >
+        <.icon name="hero-megaphone" class="size-[1.1rem]" />
+      </span>
+      <span class="min-w-0 flex-1">
+        <span class={[
+          "block truncate text-sm",
+          if(@count > 0,
+            do: "font-semibold text-base-content",
+            else: "font-medium text-base-content/85"
+          )
+        ]}>
+          Announcements
+        </span>
+        <span class="block truncate text-xs text-base-content/45">
+          {if @count > 0, do: "Waiting for you to read", else: "You're all caught up"}
+        </span>
+      </span>
+      <span
+        :if={@count > 0}
+        id="pending-announcements-count"
+        aria-label={"#{@count} announcements to read"}
+        class="grid h-5 min-w-5 place-items-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white tabular-nums shadow-sm"
+      >
+        {@count}
+      </span>
+    </.link>
+    """
+  end
+
+  @doc """
+  The `:announcements` pane: every announcement the viewer still has to read
+  (`#pending-announcements`), most urgent first, each with its own
+  "I've read this" (`#list-ack-<id>`).
+  """
+  attr :count, :integer, required: true
+  attr :announcements, :any, required: true, doc: "the `:pending_announcements` stream"
+
+  def pending_announcements(assigns) do
+    ~H"""
+    <section id="announcements-pane" class="flex min-w-0 flex-1 flex-col bg-base-100">
+      <header class="flex shrink-0 items-center gap-3 border-b border-base-300 px-3 py-2.5 sm:px-6">
+        <.link
+          patch={~p"/"}
+          aria-label="Back to chats"
+          class="-ml-1 grid size-8 place-items-center rounded-lg text-base-content/70 transition hover:bg-base-200 md:hidden"
+        >
+          <.icon name="hero-chevron-left" class="size-5" />
+        </.link>
+        <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-400/15 text-amber-700 dark:text-amber-300">
+          <.icon name="hero-megaphone" class="size-[1.1rem]" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <h1 class="truncate leading-tight font-semibold">Announcements</h1>
+          <p class="truncate text-xs text-base-content/55">
+            {to_read_label(@count)}
+          </p>
+        </div>
+      </header>
+
+      <div class="min-h-0 flex-1 overflow-y-auto px-3 py-6 sm:px-6">
+        <ul id="pending-announcements" phx-update="stream" class="mx-auto w-full max-w-3xl space-y-3">
+          <li
+            id="pending-announcements-empty"
+            class="hidden flex-col items-center gap-2 py-16 text-center only:flex"
+          >
+            <span class="grid size-12 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-600">
+              <.icon name="hero-check-badge" class="size-6" />
+            </span>
+            <p class="text-sm font-medium">You're all caught up</p>
+            <p class="text-sm text-base-content/55">New announcements will show up here.</p>
+          </li>
+          <li
+            :for={{dom_id, message} <- @announcements}
+            id={dom_id}
+            class="motion-safe:animate-[fade-in_300ms_ease-out]"
+          >
+            <article class="relative overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm transition hover:shadow-md">
+              <div
+                class={["absolute inset-y-0 left-0 w-1", priority_bar(message.priority)]}
+                aria-hidden="true"
+              />
+              <div class="py-4 pr-4 pl-5">
+                <header class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  <.priority_badge priority={message.priority} />
+                  <.link
+                    id={"pending-announcement-link-#{message.id}"}
+                    patch={~p"/c/#{message.conversation_id}"}
+                    class="font-medium text-base-content/80 underline-offset-2 hover:text-base-content hover:underline"
+                  >
+                    {message.conversation.title}
+                  </.link>
+                  <span class="text-base-content/40">·</span>
+                  <span class="text-base-content/60">{Accounts.display_name(message.sender)}</span>
+                  <span class="text-base-content/50">
+                    <.local_time
+                      id={"pending-announcement-#{message.id}-at"}
+                      at={message.inserted_at}
+                    />
+                  </span>
+                </header>
+                <p class="mt-2 text-[15px] leading-relaxed break-words whitespace-pre-line text-base-content">
+                  {message.body}
+                </p>
+                <footer class="mt-3 flex items-center border-t border-base-200 pt-3">
+                  <button
+                    id={"list-ack-#{message.id}"}
+                    type="button"
+                    phx-click="acknowledge"
+                    phx-value-id={message.id}
+                    phx-disable-with="Saving…"
+                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-amber-500 px-4 py-1.5 text-sm font-semibold text-white shadow-sm ring-1 ring-amber-600/20 transition hover:-translate-y-px hover:bg-amber-600 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 active:translate-y-0"
+                  >
+                    <.icon name="hero-check-mini" class="size-4" /> I've read this
+                  </button>
+                </footer>
+              </div>
+            </article>
+          </li>
+        </ul>
+      </div>
+    </section>
+    """
+  end
+
+  defp to_read_label(0), do: "Nothing left to read"
+  defp to_read_label(1), do: "1 to read"
+  defp to_read_label(count), do: "#{count} to read"
 
   attr :user, :map, required: true
   slot :inner_block

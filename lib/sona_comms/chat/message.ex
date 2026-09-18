@@ -7,6 +7,8 @@ defmodule SonaComms.Chat.Message do
   schema "messages" do
     field :kind, Ecto.Enum, values: [:text, :announcement], default: :text
     field :body, :string
+    # announcements only; :high blocks recipients until they've read it
+    field :priority, Ecto.Enum, values: [:low, :mid, :high]
 
     # virtual, announcements only, per viewer
     field :ack_count, :integer, virtual: true
@@ -28,5 +30,13 @@ defmodule SonaComms.Chat.Message do
     |> cast(attrs, [:body])
     |> validate_required([:body])
     |> validate_length(:body, min: 1, max: 4000)
+  end
+
+  @doc false
+  def announcement_changeset(message, attrs) do
+    %{message | priority: message.priority || :mid}
+    |> changeset(attrs)
+    |> cast(attrs, [:priority])
+    |> validate_required([:priority])
   end
 end

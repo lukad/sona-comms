@@ -24,11 +24,22 @@ defmodule SonaComms.AnnouncementFixtures do
   end
 
   @doc """
-  Posts an announcement as the scope's user. Accepts `body:`.
+  Posts an announcement as the scope's user. Accepts `body:` and `priority:`
+  (defaults to `:mid`).
   """
   def announcement_fixture(%Scope{} = scope, conversation, attrs \\ %{}) do
-    attrs = Enum.into(attrs, %{body: "Announcement #{System.unique_integer([:positive])}"})
-    {:ok, message} = Chat.post_announcement(scope, conversation.id, %{body: attrs.body})
+    attrs =
+      Enum.into(attrs, %{
+        body: "Announcement #{System.unique_integer([:positive])}",
+        priority: :mid
+      })
+
+    {:ok, message} =
+      Chat.post_announcement(scope, conversation.id, %{
+        body: attrs.body,
+        priority: attrs.priority
+      })
+
     message
   end
 end

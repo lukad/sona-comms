@@ -226,7 +226,7 @@ defmodule SonaComms.Chat do
         kind: kind
       }
 
-      with {:ok, message} <- message |> Message.changeset(attrs) |> Repo.insert() do
+      with {:ok, message} <- message |> message_changeset(attrs) |> Repo.insert() do
         Repo.update_all(
           from(c in Conversation,
             where: c.id == ^message.conversation_id,
@@ -249,6 +249,11 @@ defmodule SonaComms.Chat do
     end)
   end
 
+  defp message_changeset(%Message{kind: :announcement} = message, attrs),
+    do: Message.announcement_changeset(message, attrs)
+
+  defp message_changeset(%Message{} = message, attrs), do: Message.changeset(message, attrs)
+
   @doc """
   Marks the conversation as read for the user and broadcasts
   `{:conversation_read, conversation_id}` on `"user:<id>"`.
@@ -266,10 +271,10 @@ defmodule SonaComms.Chat do
   ## Announcements (ADR 0005)
 
   @doc """
-  Returns a changeset for the announcement form.
+  Returns a changeset for the announcement form. `priority` defaults to `:mid`.
   """
   def change_announcement(attrs \\ %{}) do
-    Message.changeset(%Message{kind: :announcement}, attrs)
+    Message.announcement_changeset(%Message{kind: :announcement}, attrs)
   end
 
   @doc """
@@ -278,7 +283,8 @@ defmodule SonaComms.Chat do
 
   Requires the participant's `can_announce`, so DMs and group chats always
   return `{:error, :unauthorized}`. Receipts are a snapshot: one per active
-  participant except the sender, inserted in the same transaction. Broadcasts
+  participant except the sender, inserted in the same transaction. `priority`
+  is `"low"`, `"mid"` (the default) or `"high"`. Broadcasts
   `{:message_created, conversation_id, message_id}` and returns the message
   as `get_message/2` does.
   """
@@ -423,6 +429,36 @@ defmodule SonaComms.Chat do
   defp authorize_receipts(%Message{sender_id: user_id}, %Participant{user_id: user_id}), do: :ok
   defp authorize_receipts(_message, %Participant{can_announce: true}), do: :ok
   defp authorize_receipts(_message, _participant), do: {:error, :unauthorized}
+
+  @doc """
+  Lists the announcements the user still has to acknowledge, in conversations
+  they're active in: `:high` first, then `:mid`, then `:low`, newest first
+  within each. Sender and conversation are preloaded, and the announcement
+  fields are set as in `get_message/2`.
+  """
+  def list_pending_announcements(%Scope{user: %User{id: user_id}}) do
+    from(m in Message,
+      join: r in Receipt,
+      on: r.message_id == m.id and r.user_id == ^user_id and is_nil(r.acknowledged_at),
+      join: p in Participant,
+      on: p.conversation_id == m.conversation_id and p.user_id == ^user_id and is_nil(p.left_at),
+      join: c in assoc(m, :conversation),
+      order_by: [
+        asc:
+          fragment(
+            "array_position(ARRAY['high','mid','low']::varchar[], ?::varchar)",
+            m.priority
+          ),
+        desc: m.inserted_at,
+        desc: m.id
+      ],
+      preload: [:sender, conversation: c]
+    )
+    |> Repo.all()
+    |> put_announcement_fields(user_id)
+  end
+
+  def list_pending_announcements(_scope), do: []
 
   # Sets ack_count, recipient_count, my_ack and my_acknowledged_at on
   # announcements, as seen by user_id. Text messages keep nil.

@@ -11,15 +11,21 @@ defmodule SonaComms.ChatFixtures do
 
   @doc """
   Posts a message as the scope's user. Accepts `body:` and `kind:`; a
-  `kind: :announcement` message is posted as text and then relabelled.
+  `kind: :announcement` message is posted as text and then relabelled, with
+  priority `:mid`.
   """
   def message_fixture(%Scope{} = scope, conversation, attrs \\ %{}) do
     attrs = Enum.into(attrs, %{body: "Message #{System.unique_integer([:positive])}"})
     {:ok, message} = Chat.post_message(scope, conversation.id, %{body: attrs.body})
 
     case Map.get(attrs, :kind, :text) do
-      :text -> message
-      kind -> message |> Ecto.Changeset.change(kind: kind) |> Repo.update!()
+      :text ->
+        message
+
+      :announcement ->
+        message
+        |> Ecto.Changeset.change(kind: :announcement, priority: :mid)
+        |> Repo.update!()
     end
   end
 

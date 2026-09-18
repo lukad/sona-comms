@@ -32,7 +32,7 @@ defmodule SonaCommsWeb.ChatLive do
       <div class="flex h-full">
         <aside class={[
           "w-full shrink-0 flex-col border-r border-base-300 bg-base-200/50 md:flex md:w-80",
-          if(@conversation, do: "hidden", else: "flex")
+          if(@conversation || @live_action == :announcements, do: "hidden", else: "flex")
         ]}>
           <div class="flex items-center gap-1 px-4 pt-4 pb-1">
             <h2 class="flex-1 text-base font-semibold tracking-tight">Chats</h2>
@@ -54,6 +54,13 @@ defmodule SonaCommsWeb.ChatLive do
             >
               <.icon name="hero-user-group" class="size-5" />
             </.link>
+          </div>
+
+          <div class="px-2 pt-2">
+            <AnnouncementComponents.announcements_link
+              count={@pending_announcement_count}
+              active={@live_action == :announcements}
+            />
           </div>
 
           <ul
@@ -145,8 +152,14 @@ defmodule SonaCommsWeb.ChatLive do
           />
         </section>
 
+        <AnnouncementComponents.pending_announcements
+          :if={@live_action == :announcements}
+          count={@pending_announcement_count}
+          announcements={@streams.pending_announcements}
+        />
+
         <section
-          :if={!@conversation}
+          :if={!@conversation && @live_action != :announcements}
           id="no-conversation-selected"
           class="hidden flex-1 flex-col items-center justify-center gap-3 p-8 text-center md:flex"
         >
@@ -190,6 +203,12 @@ defmodule SonaCommsWeb.ChatLive do
         form={@group_form}
         colleagues={@streams.colleagues}
         on_cancel={JS.patch(return_path(@conversation))}
+      />
+
+      <%!-- last, so it sits above any other modal --%>
+      <AnnouncementComponents.urgent_announcement_modal
+        :if={@urgent_announcement}
+        message={@urgent_announcement}
       />
     </Layouts.app>
     """
@@ -277,6 +296,10 @@ defmodule SonaCommsWeb.ChatLive do
 
   defp apply_action(socket, :index, _params) do
     {:ok, socket |> close_conversation() |> assign(:page_title, "Chat")}
+  end
+
+  defp apply_action(socket, :announcements, _params) do
+    {:ok, socket |> close_conversation() |> assign(:page_title, "Announcements")}
   end
 
   # The new-conversation modals keep the open conversation behind them.

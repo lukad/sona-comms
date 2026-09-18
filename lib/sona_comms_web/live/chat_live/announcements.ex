@@ -3,7 +3,7 @@ defmodule SonaCommsWeb.ChatLive.Announcements do
   Announcement behaviour attached to `SonaCommsWeb.ChatLive` (PLAN.md §6.1).
 
   ChatLive has no announcement code of its own. `attach/1` assigns the modal
-  defaults and attaches two hooks:
+  defaults, loads the viewer's pending announcements and attaches two hooks:
 
     * `:handle_event` handles `"validate_announcement"`, `"announce"` and
       `"acknowledge"`, and halts;
@@ -11,10 +11,20 @@ defmodule SonaCommsWeb.ChatLive.Announcements do
       It refetches the message with `Chat.get_message/2`, because `my_ack` is
       per viewer and never comes from the broadcast (ADR 0005), updates it in
       the `:messages` stream and refreshes the receipts modal if it's open.
+      It also watches `{:message_created, ...}` and `{:conversation_left, _}`
+      to keep the pending announcements current, and continues.
 
-  `apply_action/3` fills `@announcement_form` for `:announce`, and
+  Pending announcements (the viewer's unacknowledged receipts):
+
+    * `@pending_announcement_count` - the sidebar's "Announcements" badge;
+    * `@urgent_announcement` - the first pending `:high` one, shown in a modal
+      the viewer can't dismiss until they've read it;
+    * the `:pending_announcements` stream - the `:announcements` list.
+
+  `apply_action/3` fills `@announcement_form` for `:announce`,
   `@receipt_summary` plus the `:pending_receipts` and `:read_receipts`
-  streams for `:receipts`.
+  streams for `:receipts`, and the `:pending_announcements` stream for
+  `:announcements`.
   """
   use SonaCommsWeb, :verified_routes
 
@@ -35,14 +45,16 @@ defmodule SonaCommsWeb.ChatLive.Announcements do
     |> assign(:receipt_summary, nil)
     |> stream(:pending_receipts, [])
     |> stream(:read_receipts, [])
+    |> reload_pending()
     |> attach_hook(:announcement_events, :handle_event, &handle_event/3)
     |> attach_hook(:announcement_updates, :handle_info, &handle_info/2)
   end
 
   @doc """
-  Fills the modal assigns for `:announce` and `:receipts`, and clears them
-  for other actions. Called from `ChatLive.handle_params/3` after it has
-  assigned `@conversation`.
+  Fills the modal assigns for `:announce` and `:receipts` and the pending
+  list for `:announcements`, and clears the modal assigns for other actions.
+  Called from `ChatLive.handle_params/3` after it has assigned
+  `@conversation`.
   """
   def apply_action(socket, live_action, params)
       when live_action in [:announce, :receipts] do
@@ -58,7 +70,16 @@ defmodule SonaCommsWeb.ChatLive.Announcements do
     end
   end
 
-  def apply_action(socket, _live_action, _params) do
+  # the stream is only rendered here, so it is refilled on every visit
+  def apply_action(socket, :announcements, _params) do
+    socket
+    |> close_modals()
+    |> reload_pending()
+  end
+
+  def apply_action(socket, _live_action, _params), do: close_modals(socket)
+
+  defp close_modals(socket) do
     socket
     |> assign(:announcement_form, nil)
     |> assign(:receipt_summary, nil)
@@ -158,6 +179,18 @@ defmodule SonaCommsWeb.ChatLive.Announcements do
   defp handle_info({:ack_updated, message_id, _counts}, socket),
     do: {:halt, refresh_message(socket, message_id)}
 
+  # ChatLive renders the message; this only picks up a new announcement for us
+  defp handle_info({:message_created, _conversation_id, message_id}, socket) do
+    case Chat.get_message(socket.assigns.current_scope, message_id) do
+      {:ok, %{my_ack: :pending}} -> {:cont, reload_pending(socket)}
+      _other -> {:cont, socket}
+    end
+  end
+
+  # leaving deletes our pending receipts there
+  defp handle_info({:conversation_left, _conversation_id}, socket),
+    do: {:cont, reload_pending(socket)}
+
   defp handle_info(_message, socket), do: {:cont, socket}
 
   # Refetches through Chat for the viewer's own my_ack, never from a broadcast
@@ -168,10 +201,28 @@ defmodule SonaCommsWeb.ChatLive.Announcements do
         |> update_open_message(message)
         |> refresh_receipts(message)
         |> refresh_sidebar_row(message)
+        |> refresh_pending(message)
 
       {:error, :not_found} ->
-        socket
+        refresh_pending(socket, %{id: message_id, my_ack: nil})
     end
+  end
+
+  # Only a pending announcement of ours that is no longer pending changes the list
+  defp refresh_pending(socket, %{id: message_id, my_ack: my_ack}) do
+    if my_ack != :pending and MapSet.member?(socket.assigns.pending_announcement_ids, message_id),
+      do: reload_pending(socket),
+      else: socket
+  end
+
+  defp reload_pending(socket) do
+    pending = Chat.list_pending_announcements(socket.assigns.current_scope)
+
+    socket
+    |> assign(:pending_announcement_ids, MapSet.new(pending, & &1.id))
+    |> assign(:pending_announcement_count, length(pending))
+    |> assign(:urgent_announcement, Enum.find(pending, &(&1.priority == :high)))
+    |> stream(:pending_announcements, pending, reset: true)
   end
 
   # update_only: an old announcement outside the loaded page mustn't be appended

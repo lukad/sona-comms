@@ -343,6 +343,9 @@ defmodule SonaCommsWeb.CoreComponents do
   the parent route. Give the title `id="<id>-title"` and the description
   `id="<id>-description"` for screen readers.
 
+  With `dismissible={false}` it has no close button and ignores Escape and
+  outside clicks; it goes away only when the server stops rendering it.
+
   ## Examples
 
       <.modal :if={@live_action == :new_venue} id="venue-modal" show on_cancel={JS.patch(~p"/org")}>
@@ -352,6 +355,7 @@ defmodule SonaCommsWeb.CoreComponents do
   attr :id, :string, required: true
   attr :show, :boolean, default: false
   attr :on_cancel, JS, default: %JS{}
+  attr :dismissible, :boolean, default: true
   slot :inner_block, required: true
 
   def modal(assigns) do
@@ -379,12 +383,13 @@ defmodule SonaCommsWeb.CoreComponents do
         <div class="flex min-h-full items-center justify-center p-4 sm:p-6">
           <.focus_wrap
             id={"#{@id}-container"}
-            phx-window-keydown={JS.exec("data-cancel", to: "##{@id}")}
-            phx-key="escape"
-            phx-click-away={JS.exec("data-cancel", to: "##{@id}")}
+            phx-window-keydown={@dismissible && JS.exec("data-cancel", to: "##{@id}")}
+            phx-key={@dismissible && "escape"}
+            phx-click-away={@dismissible && JS.exec("data-cancel", to: "##{@id}")}
             class="relative hidden w-full max-w-lg rounded-box bg-base-100 p-6 shadow-2xl ring-1 ring-base-300 transition"
           >
             <button
+              :if={@dismissible}
               type="button"
               phx-click={JS.exec("data-cancel", to: "##{@id}")}
               class="absolute top-4 right-4 cursor-pointer rounded-full p-1 opacity-50 transition hover:bg-base-200 hover:opacity-100"
